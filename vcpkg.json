@@ -1,0 +1,12 @@
+{
+  "name": "alpaca-ws",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "boost-asio",
+    "boost-beast",
+    "boost-system",
+    "boost-thread",
+    "openssl",
+    "nlohmann-json"
+  ]
+}

@@ -39,3 +39,19 @@
 
 # debug information files
 *.dwo
+
+#Visual studio files
+\.vs
+
+#vcpkg
+vcpkg_installed/
+
+#secret key
+*secrets_local.*
+
+#generated files
+*.exe*
+*.iobj
+*.ipdb
+*.log
+*.tlog

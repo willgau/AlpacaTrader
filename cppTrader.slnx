@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="cppTrader/cppTrader.vcxproj" Id="41f19f21-40f8-4829-bc8e-da537ab72c8f" />
+</Solution>
