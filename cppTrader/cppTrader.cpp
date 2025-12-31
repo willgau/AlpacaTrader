@@ -1,35 +1,7 @@
-// alpaca_trade_ws_async.cpp
-// g++ -std=c++20 -O2 alpaca_trade_ws_async.cpp -lssl -lcrypto -lpthread -o alpaca_ws
-
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
-#include <boost/beast.hpp>
-#include <boost/beast/ssl.hpp>
-#include <boost/beast/websocket.hpp>
-
-#include <nlohmann/json.hpp>
-
-#include <chrono>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <string>
-#include <string_view>
-#include <vector>
-
-namespace asio = boost::asio;
-namespace ssl = asio::ssl;
-namespace beast = boost::beast;
-namespace ws = beast::websocket;
-using tcp = asio::ip::tcp;
-
-using asio::awaitable;
-using asio::use_awaitable;
+#include "secrets_local.h"
+#include "common.h"
+#include "myboost.h"
+#include "Porfolio.h"
 
 static nlohmann::json parse_ws_payload(const beast::flat_buffer& buf, bool is_binary) {
     const auto* data = static_cast<const std::uint8_t*>(buf.data().data());
@@ -200,8 +172,8 @@ static awaitable<void> run_forever() {
     const std::string host = "paper-api.alpaca.markets"; // or api.alpaca.markets
     const std::string port = "443";
     const std::string path = "/stream";
-    const std::string key_id = "<KEY>";
-    const std::string secret = "<SECRET>";
+    const std::string key_id = APCA_KEY_ID;
+    const std::string secret = APCA_SECRET;
 
     // TLS context (shared across reconnect attempts)
     ssl::context tls_ctx(ssl::context::tls_client);
@@ -209,6 +181,9 @@ static awaitable<void> run_forever() {
     // Use system roots; for strict setups you may load pinned roots instead.
     tls_ctx.set_default_verify_paths();
     tls_ctx.set_verify_mode(ssl::verify_peer);
+
+    // Load root CAs (PEM bundle)
+    tls_ctx.load_verify_file(CACERT_LOCATION);
 
     // Hostname verification (Boost helper)
     tls_ctx.set_verify_callback(ssl::host_name_verification(host));
@@ -236,13 +211,15 @@ static awaitable<void> run_forever() {
 int main() {
     try {
         asio::io_context ioc;
-
+        
         // If you want multiple threads driving the same io_context:
         // std::vector<std::jthread> threads;
         // for (int i=0; i<2; ++i) threads.emplace_back([&]{ ioc.run(); });
 
         asio::co_spawn(ioc, run_forever(), asio::detached);
+        asio::co_spawn(ioc, Portfolio::getInstance().poll_account_forever("paper-api.alpaca.markets", "443"), asio::detached);
         ioc.run();
+
     }
     catch (const std::exception& e) {
         std::cerr << "fatal: " << e.what() << "\n";

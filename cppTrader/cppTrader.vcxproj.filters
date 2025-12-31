@@ -18,5 +18,22 @@
     <ClCompile Include="cppTrader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Porfolio.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\secrets_local.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Porfolio.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\myboost.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
