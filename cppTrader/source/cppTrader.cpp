@@ -165,7 +165,8 @@ static awaitable<void> run_one_session(
 }
 
 // Reconnect supervisor with exponential backoff.
-static awaitable<void> run_forever() {
+static awaitable<void> run_forever() 
+{
     auto ex = co_await asio::this_coro::executor;
 
     // Configure here:
@@ -191,11 +192,13 @@ static awaitable<void> run_forever() {
     std::chrono::milliseconds backoff{ 250 };
     const std::chrono::milliseconds backoff_max{ 10'000 };
 
-    for (;;) {
-        try {
+    while(true) {
+        try 
+        {
             co_await run_one_session(host, port, path, key_id, secret, tls_ctx);
         }
-        catch (const std::exception& e) {
+        catch (const std::exception& e) 
+        {
             std::cerr << "[session error] " << e.what() << "\n";
         }
 
@@ -209,15 +212,13 @@ static awaitable<void> run_forever() {
 }
 
 int main() {
-    try {
+    try 
+    {
         asio::io_context ioc;
-        
-        // If you want multiple threads driving the same io_context:
-        // std::vector<std::jthread> threads;
-        // for (int i=0; i<2; ++i) threads.emplace_back([&]{ ioc.run(); });
 
         asio::co_spawn(ioc, run_forever(), asio::detached);
-        asio::co_spawn(ioc, Portfolio::getInstance().poll_account_forever("paper-api.alpaca.markets", "443"), asio::detached);
+        asio::co_spawn(ioc, Portfolio::getInstance("Will", 900).poll_account_forever(), asio::detached);
+
         ioc.run();
 
     }

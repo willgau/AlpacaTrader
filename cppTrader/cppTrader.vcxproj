@@ -133,14 +133,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="cppTrader.cpp" />
-    <ClCompile Include="Porfolio.cpp" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="include\common.h" />
     <ClInclude Include="include\myboost.h" />
+    <ClInclude Include="include\OrderType.h" />
     <ClInclude Include="include\Porfolio.h" />
     <ClInclude Include="include\secrets_local.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="source\cppTrader.cpp" />
+    <ClCompile Include="source\Porfolio.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

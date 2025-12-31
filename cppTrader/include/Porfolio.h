@@ -12,21 +12,25 @@ class Portfolio {
 
 public:
 
-	static Portfolio& getInstance(std::string iName = "Default", double iCash = 100000.0) {
-		static Portfolio instance(iName, iCash);
+	static Portfolio& getInstance(const std::string& iName = "Default", const double& iCash = 100000.0, const std::string& iHost = "paper-api.alpaca.markets", const std::string& iPort = "443") {
+		static Portfolio instance(iName, iCash, iHost, iPort);
 		return instance;
 	}
 
-	static asio::awaitable<void> poll_account_forever(std::string host, std::string port);
+	asio::awaitable<void> poll_account_forever();
+
+	awaitable<nlohmann::json> alpaca_post_order( const nlohmann::json& order, ssl::context& tls_ctx);
 
 	std::string getName() const { return mName; }
 
 	double getCash() const { return mCash; }
 
-private:
-	Portfolio(std::string iName, double iCash) : mName{ iName }, mCash{ iCash } {};
 
-	static awaitable<nlohmann::json> alpaca_get_account(std::string host, std::string port, ssl::context& tls_ctx);
+private:
+
+	Portfolio(const std::string& iName, const double& iCash, const std::string& iHost, const std::string& iPort);
+
+	awaitable<nlohmann::json> alpaca_get_account( ssl::context& tls_ctx);
 	
     
 	~Portfolio() = default;
@@ -35,5 +39,7 @@ private:
 
 	std::string mName;
 	double mCash;
+	std::string mHost;
+	std::string mPort;
 
 };
