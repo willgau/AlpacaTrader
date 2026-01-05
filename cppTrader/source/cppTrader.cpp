@@ -4,7 +4,10 @@
 #include "Porfolio.h"
 
 #include "FastQueue.hpp"
+#include "Benchmark.h"
+#include "OrderType.h"
 
+// Helper: parse WebSocket payload (text or binary) into JSON.
 static nlohmann::json parse_ws_payload(const beast::flat_buffer& buf, bool is_binary) {
     const auto* data = static_cast<const std::uint8_t*>(buf.data().data());
     const std::size_t n = buf.data().size();
@@ -166,94 +169,256 @@ static awaitable<void> run_one_session(
     }
 }
 
-// Reconnect supervisor with exponential backoff.
-static awaitable<void> run_forever() 
+
+template <class Consumer>
+awaitable<void> consumer_run_forever( Consumer consumer, BenchConfig benchmark, std::uint64_t qpcFrequency, boost::barrier& start_barrier, std::atomic<bool>& producer_done, BenchResults& out) 
 {
+    pin_current_thread_to_cpu(1);
+
     auto ex = co_await asio::this_coro::executor;
+    asio::steady_timer t(ex);
 
-    // Configure here:
-    const std::string host = "paper-api.alpaca.markets"; // or api.alpaca.markets
-    const std::string port = "443";
-    const std::string path = "/stream";
-    const std::string key_id = APCA_KEY_ID;
-    const std::string secret = APCA_SECRET;
+    std::array<std::byte, 256> buf{};
 
-    // TLS context (shared across reconnect attempts)
-    ssl::context tls_ctx(ssl::context::tls_client);
+    long double sum_ns_128 = 0;
 
-    // Use system roots; for strict setups you may load pinned roots instead.
-    tls_ctx.set_default_verify_paths();
-    tls_ctx.set_verify_mode(ssl::verify_peer);
+    std::uint32_t sample_counter = 0;
 
-    // Load root CAs (PEM bundle)
-    tls_ctx.load_verify_file(CACERT_LOCATION);
+    start_barrier.wait();
 
-    // Hostname verification (Boost helper)
-    tls_ctx.set_verify_callback(ssl::host_name_verification(host));
-
-    std::chrono::milliseconds backoff{ 250 };
-    const std::chrono::milliseconds backoff_max{ 10'000 };
-
-    while(true) {
-        try 
-        {
-            co_await run_one_session(host, port, path, key_id, secret, tls_ctx);
-        }
-        catch (const std::exception& e) 
-        {
-            std::cerr << "[session error] " << e.what() << "\n";
-        }
-
-        // Backoff + jitter (very basic)
-        const int jitter_ms = std::rand() % 200; // 0..199
-        co_await async_sleep(backoff + std::chrono::milliseconds(jitter_ms));
-
-        // Exponential backoff with cap
-        backoff = std::min(backoff * 2, backoff_max);
-    }
-}
-//temp function
-void worker()
-{
-    using Q = FastQueue<(1u << 20), 8, (1u << 16)>;
-
-    Q q;
-    auto prod = q.make_producer();
-    auto cons = q.make_consumer();
-
-    const char msg[] = "hello";
-    prod.write(std::as_bytes(std::span{ msg, sizeof(msg) }));
-
-    std::array<std::byte, 64> buf{};
-    int n = cons.try_read(buf);
-    if (n > 0) {
-        std::cout << "read " << n << " bytes: "
-            << reinterpret_cast<const char*>(buf.data()) << "\n";
-    }
-}
-
-int main() {
-
-    boost::thread t(&worker);
-
-    try 
+    while (out.consumed < benchmark.messages) 
     {
+        int n = consumer.try_read(buf);
+        if (n <= 0) {
+            // async backoff (does not block io_context)
+            t.expires_after(benchmark.empty_backoff);
+            co_await t.async_wait(use_awaitable);
+            continue;
+        }
+
+        if ((std::size_t)n != sizeof(OrderMsg)) {
+            // unexpected; skip
+            continue;
+        }
+
+        OrderMsg m{};
+        std::memcpy(&m, buf.data(), sizeof(m));
+
+        // "process": update checksum so compiler can’t erase the loop
+        out.checksum += (m.seq * 1315423911ull) ^ (m.qty * 2654435761ull);
+
+        // latency sampling
+        if (++sample_counter >= benchmark.sample_every) 
+        {
+            sample_counter = 0;
+
+            std::uint64_t now = qpc_now();
+            std::uint64_t dt_ticks = (now >= m.ts_qpc) ? (now - m.ts_qpc) : 0;
+            std::uint64_t dt_ns = ticks_to_ns(dt_ticks, qpcFrequency);
+
+            if (dt_ns < out.min_ns) out.min_ns = dt_ns;
+            if (dt_ns > out.max_ns) out.max_ns = dt_ns;
+
+            out.hist.add(dt_ns);
+
+            sum_ns_128 += (long double)dt_ns;
+        }
+
+        ++out.consumed;
+
+        (void)producer_done.load(std::memory_order_acquire);
+    }
+
+    if (out.hist.total > 0) 
+    {
+        out.avg_ns = (double)((unsigned long long)(sum_ns_128 / out.hist.total));
+    }
+    else 
+    {
+        out.min_ns = 0;
+        out.avg_ns = 0.0;
+        out.max_ns = 0;
+    }
+
+    co_return;
+}
+
+//template <class Consumer>
+//void consumer_thread_fn( Consumer consumer, BenchConfig benchmark, boost::barrier& start_barrier, std::atomic<bool>& producer_done,  std::uint64_t& out_consumed,  std::uint64_t& out_checksum) 
+//{
+//    pin_current_thread_to_cpu(1);
+//
+//    std::array<std::byte, 4096> buf{};
+//
+//    if (benchmark.payload_bytes > buf.size()) {
+//        throw std::runtime_error("payload_bytes too large for consumer buffer");
+//    }
+//
+//    out_consumed = 0;
+//    out_checksum = 0;
+//
+//    // Wait until producer is ready
+//    start_barrier.wait();
+//
+//    while (out_consumed < benchmark.messages) 
+//    {
+//        int n = consumer.try_read(std::span<std::byte>(buf.data(), buf.size()));
+//        if (n > 0) 
+//        {
+//            // Basic correctness: check size matches what producer wrote
+//            if ((std::size_t)n < sizeof(std::uint64_t)) 
+//            {
+//                throw std::runtime_error("message too small");
+//            }
+//
+//            // Optional "work": read sequence and update checksum
+//            if (benchmark.do_consumer_work) 
+//            {
+//                std::uint64_t seq = 0;
+//                std::memcpy(&seq, buf.data(), sizeof(seq));
+//                out_checksum += (seq * 1315423911ull) ^ (seq >> 7);
+//            }
+//
+//            ++out_consumed;
+//        }
+//        else 
+//        {
+//            // empty: mild backoff (choose ONE style)
+//            boost::this_thread::yield();
+//        }
+//
+//        // If producer is done but we haven't consumed all messages, keep draining.
+//        // This is just a safety; the loop condition is out_consumed < messages.
+//        (void)producer_done.load(std::memory_order_acquire);
+//    }
+//}
+
+template <class Producer>
+void producer_thread_fn( Producer producer, BenchConfig cfg, boost::barrier& start_barrier, std::atomic<bool>& producer_done) {
+    pin_current_thread_to_cpu(0);
+
+    start_barrier.wait();
+
+    for (std::uint64_t i = 0; i < cfg.messages; ++i) {
+        // Alternate Buy/Sell deterministically
+        OrderMsg m = make_msg(i, (i & 1) == 0);
+        
+        //to debug
+        //print_msg(m);
+        producer.write(std::as_bytes(std::span{ &m, 1 }));
+    }
+
+    producer_done.store(true, std::memory_order_release);
+}
+
+int main() 
+{
+    try
+    {
+        const std::uint64_t freq = qpc_freq();
+
+        BenchConfig benchmark;
+        BenchResults results;
+
+        benchmark.messages = 5'000'000;
+        benchmark.sample_every = 1;
+        benchmark.empty_backoff = std::chrono::microseconds(10);
+
+        using Q = FastQueue<(1u << 20), 8, (1u << 16)>;
+
+        Q q;
+        auto prod = q.make_producer();
+        auto cons = q.make_consumer();
+
+        // Barrier to start both threads at the same time
+        boost::barrier start_barrier(2);
+        std::atomic<bool> producer_done{ false };
+
+        // Start the asio event loop in this main thread
         asio::io_context ioc;
+         
+        // Start timepoints
+        //auto start_time = std::chrono::steady_clock::time_point{};
+        //auto end_time = std::chrono::steady_clock::time_point{};
+        auto timing = std::make_shared<TimingState>();
 
-        asio::co_spawn(ioc, run_forever(), asio::detached);
-        asio::co_spawn(ioc, Portfolio::getInstance("Will", 900).poll_account_forever(), asio::detached);
-        
-        
+        auto consumer = std::move(cons);    // move consumer out before co_spawn
+        auto bench = benchmark;             // copy config (small)
+        auto freq_l = freq;                 // copy
 
-        ioc.run();
+        // Launch io_context in its own OS thread
+        boost::thread io_thread([&] 
+            {
+                pin_current_thread_to_cpu(2);
+                ioc.run();
+            });
+
+        // Spawn consumer coroutine
+        asio::co_spawn(
+            ioc,
+            [consumer = std::move(consumer),
+            bench,
+            freq_l,
+            &start_barrier,
+            &producer_done,
+            &results,
+            timing,
+            &ioc]() mutable -> awaitable<void>
+            {
+                timing->start = std::chrono::steady_clock::now();
+
+                co_await consumer_run_forever(
+                    std::move(consumer),
+                    bench,
+                    freq_l,
+                    start_barrier,
+                    producer_done,
+                    results
+                );
+
+                timing->end = std::chrono::steady_clock::now();
+                ioc.stop();
+                co_return;
+            },
+            asio::detached
+        );
+
+        // Producer thread
+        boost::thread producer_thr( &producer_thread_fn<decltype(prod)>, std::move(prod), benchmark, std::ref(start_barrier), std::ref(producer_done));
+
+        producer_thr.join();
+        io_thread.join();
+
+        const double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(timing->end - timing->start).count();
+
+        const double msg_per_sec = double(benchmark.messages) / seconds;
+        const double bytes_per_sec = (double(benchmark.messages) * double(sizeof(OrderMsg))) / seconds;
+        const double mib_per_sec = bytes_per_sec / (1024.0 * 1024.0);
+
+        std::cout << "Messages   : " << benchmark.messages << "\n";
+        std::cout << "Msg size   : " << sizeof(OrderMsg) << " bytes\n";
+        std::cout << "Time       : " << seconds << " s\n";
+        std::cout << "Throughput : " << msg_per_sec << " msg/s\n";
+        std::cout << "Bandwidth  : " << mib_per_sec << " MiB/s\n";
+        std::cout << "Consumed   : " << results.consumed << "\n";
+        std::cout << "Checksum   : " << results.checksum << "\n";
+
+        if (results.hist.total > 0) 
+        {
+            std::cout << "\nLatency (ns) over " << results.hist.total << " samples:\n";
+            std::cout << "  min   : " << results.min_ns << "\n";
+            std::cout << "  p50~  : " << results.hist.percentile(0.50) << " (bucket upper bound)\n";
+            std::cout << "  p99~  : " << results.hist.percentile(0.99) << " (bucket upper bound)\n";
+            std::cout << "  p99.9~: " << results.hist.percentile(0.999) << " (bucket upper bound)\n";
+            std::cout << "  max   : " << results.max_ns << "\n";
+            std::cout << "  avg   : " << results.avg_ns << "\n";
+        }
 
     }
     catch (const std::exception& e) {
         std::cerr << "fatal: " << e.what() << "\n";
         return 1;
     }
-
-    t.join();
 
     return 0;
 }

@@ -1,5 +1,6 @@
 #include "common.h"
 #include <nlohmann/json.hpp>
+#include "Benchmark.h"
 
 class BuyOrder {
     public:
@@ -53,3 +54,47 @@ class SellOrder {
         std::string mType;
         std::string mTime; 
 };
+
+static inline void copy_symbol(char(&dst)[16], std::string_view src) 
+{
+    // Copy up to 15 chars and always null-terminate.
+    const std::size_t n = std::min(src.size(), sizeof(dst) - 1);
+    std::memcpy(dst, src.data(), n);
+    dst[n] = '\0';
+}
+
+enum class Action : std::uint8_t { Buy = 1, Sell = 2 };
+
+#pragma pack(push, 1)
+struct OrderMsg {
+    std::uint64_t ts_qpc;      // producer timestamp (QPC ticks)
+    std::uint64_t seq;         // sequence number
+    Action action;             // buy/sell
+    std::uint8_t _pad[3]{};    // padding
+    std::uint32_t qty;         // shares
+    char symbol[16];           // null-terminated
+};
+#pragma pack(pop)
+
+//Create fake order messages for benchmarking
+static inline OrderMsg make_msg(std::uint64_t seq, bool buy) {
+    OrderMsg m{};
+    m.ts_qpc = qpc_now();
+    m.seq = seq;
+    m.action = buy ? Action::Buy : Action::Sell;
+    m.qty = 1 + (std::uint32_t)(seq % 10);
+    std::memset(m.symbol, 0, sizeof(m.symbol));
+    // alternate symbols to avoid constant folding
+    const char* sym = (seq % 2 == 0) ? "AAPL" : "MSFT";
+    copy_symbol(m.symbol, sym);
+    return m;
+}
+
+static inline void print_msg(OrderMsg m) 
+{
+    std::cout << "OrderMsg: seq=" << m.seq
+        << " action=" << ((m.action == Action::Buy) ? "Buy" : "Sell")
+        << " qty=" << m.qty
+        << " symbol=" << m.symbol
+        << "\n";
+}
