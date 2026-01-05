@@ -134,6 +134,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="include\common.h" />
+    <ClInclude Include="include\FastQueue.hpp" />
     <ClInclude Include="include\myboost.h" />
     <ClInclude Include="include\OrderType.h" />
     <ClInclude Include="include\Porfolio.h" />

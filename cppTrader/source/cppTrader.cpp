@@ -3,6 +3,8 @@
 #include "myboost.h"
 #include "Porfolio.h"
 
+#include "FastQueue.hpp"
+
 static nlohmann::json parse_ws_payload(const beast::flat_buffer& buf, bool is_binary) {
     const auto* data = static_cast<const std::uint8_t*>(buf.data().data());
     const std::size_t n = buf.data().size();
@@ -210,14 +212,38 @@ static awaitable<void> run_forever()
         backoff = std::min(backoff * 2, backoff_max);
     }
 }
+//temp function
+void worker()
+{
+    using Q = FastQueue<(1u << 20), 8, (1u << 16)>;
+
+    Q q;
+    auto prod = q.make_producer();
+    auto cons = q.make_consumer();
+
+    const char msg[] = "hello";
+    prod.write(std::as_bytes(std::span{ msg, sizeof(msg) }));
+
+    std::array<std::byte, 64> buf{};
+    int n = cons.try_read(buf);
+    if (n > 0) {
+        std::cout << "read " << n << " bytes: "
+            << reinterpret_cast<const char*>(buf.data()) << "\n";
+    }
+}
 
 int main() {
+
+    boost::thread t(&worker);
+
     try 
     {
         asio::io_context ioc;
 
         asio::co_spawn(ioc, run_forever(), asio::detached);
         asio::co_spawn(ioc, Portfolio::getInstance("Will", 900).poll_account_forever(), asio::detached);
+        
+        
 
         ioc.run();
 
@@ -226,5 +252,8 @@ int main() {
         std::cerr << "fatal: " << e.what() << "\n";
         return 1;
     }
+
+    t.join();
+
     return 0;
 }

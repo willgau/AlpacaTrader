@@ -9,6 +9,7 @@
 #include <boost/beast.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/websocket.hpp>
+#include <boost/thread.hpp>
 
 #include <nlohmann/json.hpp>
 

@@ -12,9 +12,7 @@ Portfolio::Portfolio(const std::string& iName, const double& iCash, const std::s
 
 
 
-awaitable<nlohmann::json> Portfolio::alpaca_get_account(
-    ssl::context& tls_ctx
-) {
+awaitable<nlohmann::json> Portfolio::alpaca_get_account( ssl::context& tls_ctx) {
     auto ex = co_await asio::this_coro::executor;
     beast::error_code ec;
 
@@ -94,7 +92,6 @@ awaitable<nlohmann::json> Portfolio::alpaca_get_account(
         {
             auto account = co_await alpaca_get_account(tls_ctx);
 
-            // These are commonly strings; keep as string or parse to decimal safely.
             const std::string equity = account.value("equity", "0");
             const std::string cash = account.value("cash", "0");
             const std::string bp = account.value("buying_power", "0");
