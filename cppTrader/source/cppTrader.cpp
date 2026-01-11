@@ -243,56 +243,6 @@ awaitable<void> consumer_run_forever( Consumer consumer, BenchConfig benchmark, 
     co_return;
 }
 
-//template <class Consumer>
-//void consumer_thread_fn( Consumer consumer, BenchConfig benchmark, boost::barrier& start_barrier, std::atomic<bool>& producer_done,  std::uint64_t& out_consumed,  std::uint64_t& out_checksum) 
-//{
-//    pin_current_thread_to_cpu(1);
-//
-//    std::array<std::byte, 4096> buf{};
-//
-//    if (benchmark.payload_bytes > buf.size()) {
-//        throw std::runtime_error("payload_bytes too large for consumer buffer");
-//    }
-//
-//    out_consumed = 0;
-//    out_checksum = 0;
-//
-//    // Wait until producer is ready
-//    start_barrier.wait();
-//
-//    while (out_consumed < benchmark.messages) 
-//    {
-//        int n = consumer.try_read(std::span<std::byte>(buf.data(), buf.size()));
-//        if (n > 0) 
-//        {
-//            // Basic correctness: check size matches what producer wrote
-//            if ((std::size_t)n < sizeof(std::uint64_t)) 
-//            {
-//                throw std::runtime_error("message too small");
-//            }
-//
-//            // Optional "work": read sequence and update checksum
-//            if (benchmark.do_consumer_work) 
-//            {
-//                std::uint64_t seq = 0;
-//                std::memcpy(&seq, buf.data(), sizeof(seq));
-//                out_checksum += (seq * 1315423911ull) ^ (seq >> 7);
-//            }
-//
-//            ++out_consumed;
-//        }
-//        else 
-//        {
-//            // empty: mild backoff (choose ONE style)
-//            boost::this_thread::yield();
-//        }
-//
-//        // If producer is done but we haven't consumed all messages, keep draining.
-//        // This is just a safety; the loop condition is out_consumed < messages.
-//        (void)producer_done.load(std::memory_order_acquire);
-//    }
-//}
-
 template <class Producer>
 void producer_thread_fn( Producer producer, BenchConfig cfg, boost::barrier& start_barrier, std::atomic<bool>& producer_done) {
     pin_current_thread_to_cpu(0);
